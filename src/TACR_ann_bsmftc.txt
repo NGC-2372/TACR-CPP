@@ -1,0 +1,673 @@
+function SingleTACR_ann_bsmftc
+    clc,clear,close all;%dbstop if all error;
+    hat=@(y)[0,-y(3),y(2);y(3),0,-y(1);-y(2),y(1),0];
+    global p R h j n m v u q w vs us vt ut qt wt vst ust vh uh vsh ush qh wh nL1 mL1 gs_1_ann_bsmftc    %Make vars available in whole program
+    global fe ft;
+
+    %% Parameters
+    L = 0.4;                       %Length (before strain)
+    N = 80;                        %Spatial resolution
+    NL = N + 1; %末端节点
+    E = 208e9;                     %Young's modulus
+    r = 0.001;                     %Cross-section radius
+    rt1 = [0.02;0;0];
+    rt2 = [0;0.02;0];
+    rt3 = [-0.02;0;0];
+    rt4 = [0;-0.02;0];
+    ri = [rt1,rt2,rt3,rt4];
+    rho = 8000;                    %Density
+    g = [-9.81;0;0];               %Gravity
+    % g = [0;0;-9.81]; 
+    Bse = zeros(3);                %Material damping coefficients - shear and extension
+    Bbt = 1e-6*eye(3)*1;           %Material damping coefficients - bending and torsion
+    C = 0.03*eye(3)*1;             %Square-law-drag damping coefficients
+    dt = 0.05;                     %Time step
+    alpha = -0.2;                  %BDF-alpha parameter
+    STEPS = 200;                   %Number of timesteps to completion
+    %t = 0:dt:dt*(STEPS-1);        %Simulation time
+    t = linspace(0,dt*(STEPS-1),STEPS);
+    U = dt:dt:dt*(STEPS);          %绘图time
+    time = U;T=dt*STEPS;
+    save ('.\1_ann_bsmftc_mat\time.mat', 'time');
+    vstar = @(s)[0;0;1];           %Value of v when static and absent loading
+    ustar = @(s)[0;0;0];           %Precurvature
+    vsstar = @(s)[0;0;0];
+    usstar = @(s)[0;0;0];
+    %% Boundary Conditions
+    for i = 1 : STEPS
+        p{i,1} = [0;0;0];          %Clamped base
+        R{i,1} = eye(3);
+        h{i,1} = [1;0;0;0];
+        q{i,1} = [0;0;0];
+        w{i,1} = [0;0;0];
+        gs_1_ann_bsmftc{i,1} = [R{i,1} p{i,1};0 0 0 1];%g(s) = [R(s) p(s);0 0 0 1]
+    end
+    nL = 0.0*g;                    %Start with a weight hung at the tip
+    mL = [0;0;0];
+
+    %% Dependent Parameter Calculations
+    A = pi*r^2;                                 %Cross-sectional area
+    J = diag([pi*r^4/4  pi*r^4/4  pi*r^4/2]);   %Inertia
+    G = E/( 2*(1+0.3) );                        %Shear modulus
+    Kse = diag([G*A, G*A, E*A]);                %Stiffness matrix - shear and extension
+    Kbt = diag([E*J(1,1), E*J(2,2), G*J(3,3)]); %Stiffness matrix - bending and torsion
+    ds = L/N;                               %Grid distance (before strain)
+    c0 = (1.5 + alpha) / ( dt*(1+alpha) );      %BDF-alpha coefficients
+    c1 = -2/dt;
+    c2 = (0.5 + alpha) / ( dt*(1+alpha) );
+    d1 = alpha / (1+alpha);
+
+    %% 参考轨迹
+    xd0_a = 0.07;    xd0_b = pi/T;  xd0_c = 0.11;%xd0=0.07sin(1/4*pi*t)+0.11 m
+    xd0 = [xd0_a*sin(xd0_b*pi*t) + xd0_c;               zeros(1,STEPS);zeros(1,STEPS)];
+    dxd0 = [xd0_a*xd0_b*pi*cos(xd0_b*pi*t);             zeros(1,STEPS);zeros(1,STEPS)];
+    ddxd0 =[-xd0_a*xd0_b*pi*xd0_b*pi*sin(xd0_b*pi*t);   zeros(1,STEPS);zeros(1,STEPS)];
+    % xd0 = [xd0_a*sin(xd0_b*pi*t)+xd0_c;                xd0_a*cos(xd0_b*pi*t)+xd0_c;             zeros(1,STEPS)];
+    % dxd0 = [xd0_a*xd0_b*pi*cos(xd0_b*pi*t);           -xd0_a*xd0_b*pi*sin(xd0_b*pi*t);          zeros(1,STEPS)];
+    % ddxd0 =[-xd0_a*xd0_b*pi*xd0_b*pi*sin(xd0_b*pi*t); -xd0_a*xd0_b*pi*xd0_b*pi*cos(xd0_b*pi*t); zeros(1,STEPS)];
+
+    % xd0_a = 0.1;    xd0_b = 2/T;  xd0_c = 0.0;%xd0=0.06sin(1/3*pi*t)+0.1 m
+    % xd0 = [xd0_a*cos(xd0_b*pi*t) + xd0_c;               zeros(1,STEPS);zeros(1,STEPS)];
+    % dxd0 = [-xd0_a*xd0_b*pi*sin(xd0_b*pi*t);            zeros(1,STEPS);zeros(1,STEPS)];
+    % ddxd0 =[-xd0_a*xd0_b*pi*xd0_b*pi*cos(xd0_b*pi*t);   zeros(1,STEPS);zeros(1,STEPS)];
+
+    % xd0 = [0.1*ones(1,STEPS);zeros(1,STEPS);zeros(1,STEPS)];
+    % dxd0 = zeros(3,STEPS);
+    % ddxd0 = zeros(3,STEPS);
+    
+    % xd0 = [0.1*cos((2*pi/T)*t);0.1*sin((2*pi/T)*t);zeros(1,STEPS)];
+    % dxd0 = [-0.1*(2*pi/T)*sin(2*pi/T*t);0.1*(2*pi/T)*cos(2*pi/T*t);zeros(1,STEPS)];
+    % ddxd0 =[0.1*(2*pi/T)*(2*pi/T)*cos((2*pi/T)*t);-0.1*(2*pi/T)*(2*pi/T)*sin((2*pi/T)*t);zeros(1,STEPS)];
+
+    %保存参考轨迹
+    ann_bsmftc_xd0 = xd0;    ann_bsmftc_dxd = dxd0;   ann_bsmftc_ddxd = ddxd0;
+    save('.\1_ann_bsmftc_mat\ann_bsmftc_p0', 'ann_bsmftc_xd0','ann_bsmftc_dxd','ann_bsmftc_ddxd');
+        
+    figure(3);
+    yyaxis left;
+    an_xd = animatedline('Color', 'r', 'LineWidth', 2.0, 'LineStyle', '-.');
+    an_p  = animatedline('Color', 'b', 'LineWidth', 2.0, 'LineStyle', '-' );
+    yyaxis right;
+    an_e1 = animatedline('Color',  [1, 0.5, 0], 'LineWidth', 2.0, 'LineStyle', ':');
+    axis([0,T,-inf,inf]);    grid on;   box on;
+    title('末端x轴位置');    legend('参考轨迹xd','实际轨迹p','位置误差e1');
+    set(gcf,'unit','centimeters','position',[1 15 15 12]);
+
+    figure(4);
+    yyaxis left;
+    an_dxd = animatedline('Color', 'r', 'LineWidth', 2.0, 'LineStyle', '-.' );
+    an_pt  = animatedline('Color', 'b', 'LineWidth', 2.0, 'LineStyle', '-'  );
+    yyaxis right;
+    an_ptt = animatedline('Color', [1, 0.5, 0], 'LineWidth', 2.0, 'LineStyle', ':');
+    axis([0,T,-inf,inf]);    grid on;   box on;
+    title('末端x轴速度');    legend('参考速度dxd','实际速度pt','加速度ptt');
+    set(gcf,'unit','centimeters','position',[1 1 15 12]);
+
+    figure(5);
+    yyaxis left;
+    an_ns = animatedline('Color', 'r', 'LineWidth', 2.0, 'LineStyle', '-' );
+    an_ft = animatedline('Color', 'b', 'LineWidth', 2.0, 'LineStyle', '-'  );
+    an_ns_fe = animatedline('Color', 'g', 'LineWidth', 2.0, 'LineStyle', '--');
+    an_fx = animatedline('Color', 'm', 'LineWidth', 2.0, 'LineStyle', '-.');
+    yyaxis right;
+    an_fx_e = animatedline('Color', [1, 0.5, 0], 'LineWidth', 1.5, 'LineStyle', ':');
+    axis([0,T,-inf,inf]);    grid on;   box on;
+    title('末端x轴受力');    legend('ns','ft','ns+fe','fx','fx_e');
+    set(gcf,'unit','centimeters','position',[31 15 15 12]);
+ 
+    figure(6);
+    yyaxis left;
+    an_am = animatedline('Color', 'r', 'LineWidth', 2.0, 'LineStyle', '-' );
+    an_mu = animatedline('Color', 'b', 'LineWidth', 2.0, 'LineStyle', '-.');
+    an_mu_hat = animatedline('Color', 'g', 'LineWidth', 2.0, 'LineStyle', '--');
+    % an_fx = animatedline('Color', 'm', 'LineWidth', 2.0, 'LineStyle', '-.');
+    yyaxis right;
+    an_d_mu_hat = animatedline('Color', [1, 0.5, 0], 'LineWidth', 1.5, 'LineStyle', ':');
+    axis([0,T,-inf,inf]);    grid on;   box on;
+    title('末端dir');    legend('am','$\mu$','$\widehat{\mu}$','$\dot{\widehat{\mu}}$','Interpreter','latex');
+    set(gcf,'unit','centimeters','position',[31 1 15 12]);
+
+    %% Main Simulation
+    i = 1;
+    Tt = [8;0;0;0];%四绳索初始张力
+    Ts = [8;0;0;0];%四绳索实际张力
+
+    mu_max = 1.8;   mu_min = 0.95;
+
+        %反步+RBF
+        gama1 = 0.09; %0.24/0.09
+        gama2 = 0.13; %0.12/0.13
+        eta = 1;        epsilon2= 0.00; epsilon3= 0.0;
+        k1 = 14.0; %45/14
+        k2 = 12.0; %32/13
+        Wx = -0.3*[4 3 2 3 4 3 2 3 4];
+        cij=0.1*[-2 -1.5 -1 -0.5 0 0.5 1.0 1.5 2;
+                -4 -3 -2 -1 0 1 2 3 4];
+        bj = 0.9;
+        %滑膜
+        lamda2 = 30.0; %7/30
+
+        % %反步+RBF2
+        %     gama1 = 0.005;
+        %     gama2 = 0.12;
+        %     eta = 1;        epsilon2= 1.0; epsilon3= 0.0;
+        %     k1 = 30.0;
+        %     k2 = 32.0; 
+        %     Wx = -0.3*[4 3 2 3 4 3 2 3 4];
+        %     cij=0.1*[-2 -1.5 -1 -0.5 0 0.5 1.0 1.5 2;
+        %             -4 -3 -2 -1 0 1 2 3 4];
+        %     bj = 0.9;
+        % %滑膜
+        % lamda2 = 10.0;
+
+    pt = zeros(3,STEPS);%参考坐标系下，末端的速度
+    ptt = zeros(3,STEPS);%参考坐标系下，末端的加速度
+    fa = zeros(3,STEPS);
+    ns_h = zeros(3,STEPS);
+    ns_fe = zeros(3,STEPS);
+    ud = 0.08*sin(8*pi*i*dt)*0;      %干扰项
+
+    % %阻抗控制器
+    % Fe=[0;0;0];
+    %     % mc=0.0001; bc=0.02; kc=0.4;
+    %     mc=10; bc=50; kc=100;
+    %     Mm=mc*eye(3);
+    %     Bm=bc*eye(3);
+    %     Km=kc*eye(3);
+    % ann_bsmftc_Fe(:,1) = [0;0;0];
+    %%RBF参数
+    dWx = zeros(1,size(Wx,2));
+    d_mu_hat(i) = 0;
+    mu_hat(i) = 1;  % mu = 1/eta
+    fx(i) = 0;
+
+    % 定义优化选项
+    options = optimoptions('fsolve', 'Display', 'none'); % 关闭所有输出
+
+    fsolve(@staticIVP, zeros(6,1), options); %Solve static BVP w/ shooting method
+    applyStaticBDFalpha();
+    visualize1();
+
+    T1 = Tt(1)*ones(1,STEPS);T2 = zeros(1,STEPS);T3 = zeros(1,STEPS);T4 = zeros(1,STEPS);
+    TT = zeros(1,STEPS); T11 = zeros(1,STEPS);T12 = zeros(1,STEPS);
+    ddxd(:,1) = ddxd0(:,1);
+    dxd(:,1) = dxd0(:,1);
+    xd(:,1) = xd0(:,1);
+    x2d(:,i) = xd(:,i);
+    e1 = zeros(3,STEPS);%位置误差1
+    e2 = zeros(3,STEPS);%位置误差2
+    de = zeros(3,STEPS);%速度误差
+    Sm = zeros(3,STEPS);%滑模面
+    uc = zeros(4,STEPS);%控制输入
+    uc(1,i) = Tt(1);
+    am{i} = dir(NL);
+    mu(i) = 1/eta;
+    % mu(i) = ud;
+    %% 主循环
+    for i = 2 : STEPS
+        if i > 0 && i < 60
+            Fe = [0;0;0];
+        elseif i > 60 && i < 160
+            Fe = [8;0;0];
+        else
+            Fe = [0;0;0];
+        end
+        % ann_bsmftc_Fe(:,i) = Fe;
+        % ud = rho*A*Fe(1);
+        % if Fe == [0;0;0]
+            ddxd(:,i) = ddxd0(:,i);
+            dxd(:,i) = dxd0(:,i);
+            xd(:,i) = xd0(:,i);
+        % else
+        %     % ddxd = Fe/Mm + ddxd0-Bm/Mm*(dxd-dxd0)-Km/Mm*(xd-xd0);
+        %     % ddxd(:,i) = Mm'*Fe + ddxd0(:,i-1)-Mm'*Bm*(dxd(:,i-1)-dxd0(:,i-1))-Mm'*Km*(xd(:,i-1)-xd0(:,i-1));
+        %     ddxd(:,i) = Mm^-1'*Fe + ddxd0(:,i-1)-Mm^-1*Bm*(dxd(:,i-1)-dxd0(:,i-1))-Mm^-1*Km*(xd(:,i-1)-xd0(:,i-1));
+        %     dxd(:,i) = dxd(:,i-1) + dt*ddxd(:,i-1); 
+        %     dxd(:,i) = dxd(:,i-1) + dt*ddxd(:,i-1); 
+        %     xd(:,i) = xd(:,i-1) + dt*dxd(:,i-1); 
+        % end
+        e1(:,i) = xd(:,i) - p{i-1,NL};
+        de(:,i) = dxd(:,i) - pt(:,i-1);
+        x2d(:,i) = dxd(:,i) + k1*e1(:,i);
+        e2(:,i) = x2d(:,i) - pt(:,i-1);
+
+        Sm(:,i) = lamda2.*e1(:,i) + e2(:,i);
+        % d_s(:,i) = k0*de(:,i) + de(:,i);
+
+        % am{i} = dir(N);
+        x1 = 1*p{i-1,NL}(1);
+        x2 = 0.1*pt(1,i-1);
+        xi=[x1;x2];
+        hx=zeros(size(Wx,2),1);
+        
+        for jj=1:1:size(Wx,2)
+            hx(jj)=exp(-norm(xi-cij(:,jj))^2/(2*bj^2));
+        end
+        
+        fx(i) = Wx*hx;
+        for jj=1:1:size(Wx,2)
+            % dWx(jj) = -gama2*e2(1,i)*hx(jj)/(rho*A);
+            dWx(jj) = -gama2*Sm(1,i)*hx(jj)/(rho*A);
+            Wx(jj) = Wx(jj) + dt*dWx(jj);
+        end
+        
+        % ud = 0.08*sin(8*pi*i*dt)*1;
+        % ud = 0.08*sin(1/6*pi*i*dt)*1;
+        % ud = 0.03*0;
+                %反步+RBF
+                TT(i) = lamda2*de(1,i)+ddxd(1,i)+k1*e1(1,i);
+                % TT(i) = lamda2*de(1,i)+ddxd(1,i)+k1*e1(1,i)-fx(i);%RBF2
+                d_mu_hat(i) = gama1*Sm(1,i)*TT(i);
+                mu_hat(i) = mu_hat(i-1)+d_mu_hat(i)*dt;
+                if 1  %限幅
+                    if mu_hat(i) >= mu_max && d_mu_hat(i) > 0
+                        d_mu_hat(i) = 0;
+                    elseif mu_hat(i) <= mu_min && d_mu_hat(i) < 0
+                            d_mu_hat(i) = 0;
+                    % elseif abs(mu_hat(i)) <= 1e-2
+                    %         d_mu_hat(i) = d_mu_hat(i-1);
+                    else
+                        d_mu_hat(i) = d_mu_hat(i);
+                    end
+                    mu_hat(i) = mu_hat(i-1)+d_mu_hat(i)*dt;
+                end
+                % epsilon=0;
+                % T1(i)=(rho*A)*(k2*e2(1,i)+e1(1,i)+mu_hat(i)*(ddxd(1,i)+k1*de(1,i)))-(fx(i)+0*ud-epsilon*sign(e2(1,i)));   %公式
+                T11(i) = e1(1,i) + mu_hat(i)*TT(i);
+                T12(i) = (fx(i) - epsilon3*sign(Sm(1,i)))/(rho*A);
+                 % T12(i) = (mu_hat(i)*fx(i) - epsilon3*sign(Sm(1,i)))/(rho*A); %RBF2
+                T1(i) = T11(i) - T12(i) + k2*Sm(1,i) + epsilon2*sign(Sm(1,i));  
+                uc(1,i) = (rho*A)*T1(i)/am{i-1}(1,1);
+                % uc(1,i)=T1(i)/(mu_hat(i)*am{i-1}(1,1));
+
+        % d_mu_hat(i) = -gama1*e2(1,i)/(rho*A);
+        % mu_hat(i) = mu_hat(i-1)+d_mu_hat(i)*dt;
+        % epsilon=0.0;
+        % T1(i)=(rho*A)*(k2*e2(1,i)+e1(1,i)+ddxd(1,i)+k1*de(1,i))-(fx(i)+mu_hat(i)-epsilon*sign(e2(1,i)));   %公式
+        % uc(1,i)=T1(i)/am{i-1}(1,1);
+
+        % d_mu_hat(i) = -gama1*Sm(1,i)/(rho*A);
+        % mu_hat(i) = mu_hat(i-1)+d_mu_hat(i)*dt;
+        % % mu_hat(i) = 0;
+        % % epsilon=0.0;
+        % T11(i)=(e1(1,i) + ddxd(1,i) + (k0+k1)*de(1,i));
+        % % T12(i)=k2*(Sm(1,i) + epsilon*sign(Sm(1,i))/(rho*A));
+        % T12(i)=k2*Sm(1,i) + epsilon*sign(Sm(1,i))/(rho*A);
+        % T1(i)=(rho*A)*(T11(i) + T12(i)) - (fx(i)+mu(i-1));   %公式
+        % uc(1,i)=T1(i)/am{i-1}(1,1);
+
+        if i < 60
+            eta = 1;
+        else
+            % eta = 0.7;
+            eta = 0.7 + 0.1*cos(1/2*pi*i*dt);
+        end
+        if i < 140 || i>200
+            ud = 0;
+        else
+            ud = 0.018;%重量kg
+            % ud = 0.015+0.005*cos(1/2*pi*i*dt);
+            % ud = 0.015*cos(1/2*pi*(i-140)*dt);
+        end
+       
+        Tt1 = eta*uc(1,i);
+        Tt2 = uc(2,i);
+        Tt3 = uc(3,i);
+        Tt4 = uc(4,i);
+
+        fsolve(@dynamicIVP, [n{i-1,1}; m{i-1,1}], options); %Solve semi-discretized PDE w/ shooting
+        applyDynamicBDFalpha();
+        visualize();
+
+        %动态绘图
+        addpoints(an_xd, t(i), xd(1,i));
+        addpoints(an_p, t(i), p{i,NL}(1));
+        addpoints(an_e1, t(i), e1(1,i));
+        % addpoints(an_e1, t(i), p{i,NL}(1)-xd(1,i));
+        drawnow;
+        addpoints(an_dxd, t(i), dxd(1,i));
+        addpoints(an_pt, t(i), pt(1,i));
+        addpoints(an_ptt, t(i), ptt(1,i));
+        drawnow;
+        % addpoints(an_ns, t(i), ns_h(1,i));
+        addpoints(an_ft, t(i), fa(1,i));
+        addpoints(an_ns_fe, t(i), ns_fe(1,i-1));
+        addpoints(an_fx, t(i), fx(i));
+        addpoints(an_fx_e, t(i),ns_fe(1,i-1)/eta-fx(i));
+        drawnow;
+        addpoints(an_am, t(i), am{i-1}(1,1));
+        addpoints(an_mu, t(i), mu(i-1));
+        addpoints(an_mu_hat, t(i), mu_hat(i));
+        addpoints(an_d_mu_hat, t(i), d_mu_hat(i));
+        drawnow;
+        mu(i) = 1/eta;
+        % mu(i) = ud*g(1);
+        am{i} = dir(NL);
+    end
+
+    % 预分配 gs1 数组
+    gs1 = zeros(NL*STEPS, 16);
+    for i = 1 : STEPS
+        for j = 1 : NL
+            gs1((i-1)*N+j,:) = reshape(gs_1_ann_bsmftc{i,j}, 1, 16);%按列存储
+        end
+    end
+    save('.\1_ann_bsmftc_mat\gs_1_ann_bsmftc.mat', 'gs1');
+
+    %% Function Definitions
+    function applyStaticBDFalpha()
+        for j = 1 : N
+            vh{i+1,j} = (c1+c2)*v{i,j};
+            uh{i+1,j} = (c1+c2)*u{i,j};
+            vsh{i+1,j} = (c1+c2)*vs{i,j};
+            ush{i+1,j} = (c1+c2)*us{i,j};
+            qh{i+1,j} = [0;0;0];
+            wh{i+1,j} = [0;0;0];
+            q{i,j} = [0;0;0];
+            w{i,j} = [0;0;0];
+            vst{i,j} = [0;0;0]; % extra add
+        end
+        j=NL;
+        q{i,j} = [0;0;0];
+        w{i,j} = [0;0;0];
+        vst{i,j} = [0;0;0]; % extra add
+        % vt{i,N} = [0;0;0];
+        pt(:,i) = R{i,NL}*q{i,NL};
+    end
+
+    function applyDynamicBDFalpha()
+        for j = 1 : N
+            vh{i+1,j} = c1*v{i,j} + c2*v{i-1,j} + d1*vt{i,j};
+            uh{i+1,j} = c1*u{i,j} + c2*u{i-1,j} + d1*ut{i,j};
+            vsh{i+1,j} = c1*vs{i,j} + c2*vs{i-1,j} + d1*vst{i,j};
+            ush{i+1,j} = c1*us{i,j} + c2*us{i-1,j} + d1*ust{i,j};
+            qh{i+1,j} = c1*q{i,j} + c2*q{i-1,j} + d1*qt{i,j};
+            wh{i+1,j} = c1*w{i,j} + c2*w{i-1,j} + d1*wt{i,j};
+        end
+    end
+
+    function E = staticIVP(G)
+        n{i,1} = G(1:3);
+        m{i,1} = G(4:6);
+
+        %Euler's method
+        for j = 1 : N
+            [ps, hs, ns, ms, us{i,j}, vs{i,j} ,v{i,j}, u{i,j}] = staticODE(p{i,j},h{i,j},n{i,j},m{i,j});
+            p{i,j+1} = p{i,j} + ds*ps;
+            h{i,j+1} = h{i,j} + ds*hs;
+            h1=h{i,j}(1); h2=h{i,j}(2); h3=h{i,j}(3); h4=h{i,j}(4);
+            R{i,j+1} = eye(3) + 2/(h{i,j}'*h{i,j}) *...
+                [-h3^2-h4^2, h2*h3-h4*h1,h2*h4 + h3*h1;
+                h2*h3 + h4*h1, -h2^2-h4^2, h3*h4-h2*h1;
+                h2*h4-h3*h1, h3*h4 + h2*h1,-h2^2-h3^2 ];
+            n{i,j+1} = n{i,j} + ds*ns;
+            m{i,j+1} = m{i,j} + ds*ms;
+            gs_1_ann_bsmftc{i,j+1} = [R{i,j+1} p{i,j+1};0 0 0 1];
+        end
+        v{i,NL} = Kse\R{i,NL}'*n{i,NL} + vstar(ds*(j-1));
+        u{i,NL} = Kbt\R{i,NL}'*m{i,NL} + ustar(ds*(j-1));
+        % vt{i,N} = [0;0;0];
+        ptt(:,i) = 1/(rho*A)*(ns+fe+ft+ud*g);
+        % ptt(:,i) = R{i,NL}*(hat(w{i,NL})*q{i,NL}+qt{i,N});
+        fa(:,i) = ft;%s=N,张力
+        ns_h(:,i) = ns;%s=N,内力导数
+        ns_fe(:,i) = ns + fe;
+        E = [ n{i,NL} - nL - ud*g;  m{i,NL} - mL ];
+    end
+
+    function E = dynamicIVP(G)
+        n{i,1} = G(1:3);
+        m{i,1} = G(4:6);
+
+        %Euler's method
+        for j = 1 : N
+            [ps, hs, ns, ms, qs, ws, vs{i,j}, us{i,j},...
+                 v{i,j}, u{i,j}, vt{i,j}, ut{i,j},...
+                 qt{i,j}, wt{i,j},vst{i,j}, ust{i,j},ft] = dynamicODE(p{i,j},h{i,j},n{i,j},m{i,j},q{i,j},w{i,j});
+            p{i,j+1} = p{i,j} + ds*ps;
+            h{i,j+1} = h{i,j} + ds*hs;
+            h1=h{i,j}(1); h2=h{i,j}(2); h3=h{i,j}(3); h4=h{i,j}(4);
+            R{i,j+1} = eye(3) + 2/(h{i,j}'*h{i,j}) *...
+                [-h3^2-h4^2, h2*h3-h4*h1,h2*h4 + h3*h1;
+                h2*h3 + h4*h1, -h2^2-h4^2, h3*h4-h2*h1;
+                h2*h4-h3*h1, h3*h4 + h2*h1,-h2^2-h3^2 ];
+            n{i,j+1} = n{i,j} + ds*ns;
+            m{i,j+1} = m{i,j} + ds*ms;
+            q{i,j+1} = q{i,j} + ds*qs;
+            w{i,j+1} = w{i,j} + ds*ws;
+            gs_1_ann_bsmftc{i,j+1} = [R{i,j+1} p{i,j+1};0 0 0 1];
+        end
+        v{i,NL} = Kse\R{i,NL}'*n{i,NL} + vstar(ds*(j-1));
+        u{i,NL} = Kbt\R{i,NL}'*m{i,NL} + ustar(ds*(j-1));
+        pt(:,i) = R{i,NL}*q{i,NL};
+        ptt(:,i) = 1/(rho*A)*(ns+fe+ft+ud*g);
+        % ptt(:,i) = R{i,NL}*(hat(w{i,NL})*q{i,NL}+qt{i,N});
+        fa(:,i) = ft;%s=N,张力
+        ns_h(:,i) = ns;%s=N,内力导数
+        ns_fe(:,i) = ns + fe;
+        E = [n{i,NL} - nL1 - ud*g ;  m{i,NL} - mL1];
+    end
+
+    function [ps, hs, ns, ms, vs, us, v, u] = staticODE(p,h,n,m)
+        h1=h(1); h2=h(2); h3=h(3); h4=h(4);
+        R1 = eye(3) + 2/(h'*h) *...
+            [-h3^2-h4^2, h2*h3-h4*h1,h2*h4 + h3*h1;
+              h2*h3 + h4*h1, -h2^2-h4^2, h3*h4-h2*h1;
+              h2*h4-h3*h1, h3*h4 + h2*h1,-h2^2-h3^2 ] ;
+        % vt = [0;0;0];
+        v = Kse\R1'*n + vstar(ds*(j-1));
+        u = Kbt\R1'*m + ustar(ds*(j-1));
+        
+        [At, B, Gt, H, a, b, d, c, nL, mL] = static_middle(u,v,R1);
+        
+        Mat = [Kse+At,Gt;B,Kbt+H];
+        vs = 1/det(Mat)*((Kbt+H)*d-Gt*c);
+        us = 1/det(Mat)*(-B*d+(Kse+At)*c);
+        
+        ft = R1*(a+At*vs+Gt*us);
+        lt = R1*(b+B*vs+H*us);
+        fe = rho*A*g;
+
+        ps = R1*v;
+        Rs = R1*hat(u);
+        hs = [ 0, -u(1), -u(2), -u(3);
+               u(1), 0, u(3), -u(2);
+               u(2), -u(3), 0, u(1);
+               u(3), u(2), -u(1), 0 ] * h/2;
+        ns = -ft-fe;
+        ms = -hat(ps)*n-lt;
+    end
+
+    %汇总中间量
+    function [At, B, Gt, H, a, b, d, c, nL, mL] = static_middle(u,v,R1)
+        
+        [ptsb1, At1, B1, Gt1, H1, a1, b1] = computeMiddle(u, v, rt1, Tt(1));
+        [ptsb2, At2, B2, Gt2, H2, a2, b2] = computeMiddle(u, v, rt2, Tt(2));
+        [ptsb3, At3, B3, Gt3, H3, a3, b3] = computeMiddle(u, v, rt3, Tt(3));
+        [ptsb4, At4, B4, Gt4, H4, a4, b4] = computeMiddle(u, v, rt4, Tt(4));
+
+        At = At1 + At2 + At3 + At4;
+        B = B1 + B2 + B3 + B4;
+        Gt = Gt1 + Gt2 + Gt3 + Gt4;
+        H = H1 + H2 + H3 + H4;
+        a = a1 + a2 + a3 + a4;
+        b = b1 + b2 + b3 + b4;
+        
+        d = Kse*vsstar(ds*(j-1)) - hat(u)*Kse*(v-vstar(ds*(j-1))) - a - R1'*rho*A*g;
+        c = Kbt*usstar(ds*(j-1)) - hat(u)*Kbt*(u-ustar(ds*(j-1))) - hat(v)*Kse*(v-vstar(ds*(j-1))) - b;
+        
+        nL = -Tt(1)*R1*ptsb1/norm(R1*ptsb1) - Tt(2)*R1*ptsb2/norm(R1*ptsb2) ...
+            - Tt(3)*R1*ptsb3/norm(R1*ptsb3) - Tt(4)*R1*ptsb4/norm(R1*ptsb4);
+        mL = -Tt(1)*hat(R1*rt1)*R1*ptsb1/norm(R1*ptsb1) - Tt(2)*hat(R1*rt2)*R1*ptsb2/norm(R1*ptsb2) ...
+            - Tt(3)*hat(R1*rt3)*R1*ptsb3/norm(R1*ptsb3) - Tt(4)*hat(R1*rt4)*R1*ptsb4/norm(R1*ptsb4);
+    end
+
+    %计算中间量
+    function [ptsb, At, B, Gt, H, a, b] = computeMiddle(u, v, rt, Tt)
+        ptsb = hat(u)*rt + v;
+        At = -Tt/norm(ptsb)^3*hat(ptsb)*hat(ptsb);
+        B = hat(rt)*At;
+        Gt = -At*hat(rt);
+        H = hat(rt)*Gt;
+        a = At*(hat(u)*ptsb);
+        b = hat(rt)*a;
+    end
+
+    function [ps,hs,ns,ms,qs,ws,vs,us,v,u,vt,ut,qt,wt,vst,ust,ft] = dynamicODE(p,h,n,m,q,w)
+        h1=h(1); h2=h(2); h3=h(3); h4=h(4);
+        R1 = eye(3) + 2/(h'*h) *...
+           [-h3^2-h4^2, h2*h3-h4*h1,h2*h4 + h3*h1;
+             h2*h3 + h4*h1, -h2^2-h4^2, h3*h4-h2*h1;
+             h2*h4-h3*h1, h3*h4 + h2*h1,-h2^2-h3^2 ] ;
+        
+        v = (Kse + c0*Bse)\(R1'*n + Kse*vstar(ds*(j-1)) - Bse*vh{i,j});
+        u = (Kbt + c0*Bbt)\(R1'*m + Kbt*ustar(ds*(j-1)) - Bbt*uh{i,j});
+        vt = c0*v + vh{i,j};
+        ut = c0*u + uh{i,j};
+        qt = c0*q + qh{i,j};
+        wt = c0*w + wh{i,j};
+
+        [At, Gt, H, a, b, nL1, mL1] = dynamic_middle(u,v,R1);
+        
+        LamdaN = -a + rho*A*(hat(w)*q + qt)+ C*q.*abs(q)- R1'*rho*A*g;
+        LamdaM = -b + rho*(hat(w)*J*w + J*wt) -hat (v)*(Kse*(v-vstar(ds*(j-1)))+Bse*vt);
+        GammaV = hat(u)*(Kse*(v-vstar(ds*(j-1)))+Bse*vt)-Kse*vsstar(ds*(j-1))+Bse*vsh{i,j};
+        GammaU = hat(u)*(Kbt*(u-ustar(ds*(j-1)))+Bbt*ut)-Kbt*usstar(ds*(j-1))+Bbt*ush{i,j};
+
+        Mat = [Kse+c0*Bse+At,Gt;Gt',Kbt+c0*Bbt+H];
+        
+        us = 1/det(Mat)*(-Gt'*(-GammaV+LamdaN)+(Kse+c0*Bse+At)*(-GammaU+LamdaM));
+        vs = 1/det(Mat)*((Kbt+c0*Bbt+H)*(-GammaV+LamdaN)-Gt*(-GammaU+LamdaM));
+        vst = c0*vs + vsh{i,j};
+        ust = c0*us + ush{i,j};
+        
+        ft = R1*(a+At*vs+Gt*us);
+        lt = R1*(b+Gt'*vs+H*us);
+        fe = rho*A*g - R1*C*q.*abs(q);
+
+        ps = R1*v;
+        Rs = R1*hat(u);
+        hs = [ 0, -u(1), -u(2), -u(3);
+               u(1), 0, u(3), -u(2);
+               u(2), -u(3), 0, u(1);
+               u(3), u(2), -u(1), 0 ] * h/2;
+        ns = rho*A*R1*(hat(w)*q + qt) -ft-fe;
+        ms = rho*R1*(hat(w)*J*w + J*wt) - hat(ps)*n -lt;
+        qs = vt - hat(u)*q + hat(w)*v;
+        ws = ut - hat(u)*w;
+        nse = -ft-fe;
+        Ts(:,i) =[Tt1,Tt2,Tt3,Tt4]; 
+    end
+
+    %汇总中间量
+    function [At, Gt, H, a, b, nL1, mL1] = dynamic_middle(u,v,R1)
+        
+        [~, At1, ~, Gt1, H1, a1, b1] = computeMiddle(u, v, rt1, Tt1);
+        [~, At2, ~, Gt2, H2, a2, b2] = computeMiddle(u, v, rt2, Tt2);
+        [~, At3, ~, Gt3, H3, a3, b3] = computeMiddle(u, v, rt3, Tt3);
+        [~, At4, ~, Gt4, H4, a4, b4] = computeMiddle(u, v, rt4, Tt4);
+
+        At = At1 + At2 + At3 + At4;
+        Gt = Gt1 + Gt2 + Gt3 + Gt4;
+        H = H1 + H2 + H3 + H4;
+        a = a1 + a2 + a3 + a4;
+        b = b1 + b2 + b3 + b4;
+        
+        pts1 = R1*hat(u)*rt1 + R1*v;
+        pts2 = R1*hat(u)*rt2 + R1*v;
+        pts3 = R1*hat(u)*rt3 + R1*v;
+        pts4 = R1*hat(u)*rt4 + R1*v;
+        %alpha1 = -hat(pts1)*hat(pts1)*(R1*(hat(u)*ptsb1)+hat(us)*rt1+vs)/norm(pts1)^3;
+
+        nL1 = -Tt1*pts1/norm(pts1) - Tt2*pts2/norm(pts2) - Tt3*pts3/norm(pts3) - Tt4*pts4/norm(pts4);
+        mL1 = -Tt1*hat(R1*rt1)*pts1/norm(pts1) - Tt2*hat(R1*rt2)*pts2/norm(pts2) - Tt3*hat(R1*rt3)*pts3/norm(pts3) - Tt4*hat(R1*rt4)*pts4/norm(pts4);
+    end
+
+    function [Dir] = dir(NS)
+        pisb = zeros(3,4);    pissb = zeros(3,4);    Dir = zeros(3,4);
+        for ii = 1:4
+            pisb(:,ii) = hat(u{i,NS})*ri(:,ii) + v{i,NS};
+            pissb(:,ii) = hat(u{i,NS})*pisb(:,ii) + cross(us{i,N},ri(:,ii))+vs{i,N};
+            Dir(:,ii) = cross(R{i,NS}*pisb(:,ii),cross(R{i,NS}*pissb(:,ii),R{i,NS}*pisb(:,ii)))/(norm(R{i,NS}*pisb(:,ii))^3);
+            % Dir(:,ii) = -cross(pisb(:,ii),cross(pisb(:,ii),pisb(:,ii)))/(norm(pisb(:,ii))^3);
+            % Dir(:,ii) = -pisb(:,ii)/norm(pisb(:,ii));
+            % Dir(:,ii) = hat(pisb(:,ii))*hat(pisb(:,ii))*pissb(:,ii)/(norm(pisb(:,ii))^3);
+        end
+    end
+
+   function visualize1()%绘制初始形状
+        x = zeros(1,NL); y = zeros(1,NL); z = zeros(1,NL);
+        for j = 1 : NL,  x(j) = p{i,j}(1);  y(j) = p{i,j}(2); z(j) = p{i,j}(3);   end
+        figure (1)
+        plot3(y,z,x);  axis([-0.5*L 0.5*L  -0.05*L 1.1*L   -0.5*L 0.5*L]); %view(120,20);
+        xlabel('y (m)');  ylabel('z (m)'); zlabel('x (m)'); hold on; 
+        quiver3(y(NL),z(NL),x(NL),R{i,NL}(1,1),R{i,NL}(2,1),R{i,NL}(3,1),0.04,'LineWidth',2,'Color',[1 0 0]);
+        quiver3(y(NL),z(NL),x(NL),R{i,NL}(1,2),R{i,NL}(2,2),R{i,NL}(3,2),0.04,'LineWidth',2,'Color',[0 1 0]);
+        quiver3(y(NL),z(NL),x(NL),R{i,NL}(1,3),R{i,NL}(2,3),R{i,NL}(3,3),0.04,'LineWidth',2,'Color',[0 0 1]);
+        hold on; grid on;  drawnow; hold off; %pause(0.05);
+        % color = [1 1 1]*0.9;
+        % squaresize = 0.02;
+        % thickness = 0.001;
+        % patch([-1 1 1 -1]*squaresize,[-1 -1 1 1]*squaresize,[-1 -1 -1 -1]*thickness,color)
+        % patch([-1 1 1 -1]*squaresize,[-1 -1 1 1]*squaresize,[0 0 0 0],color)
+        % patch([1 1 1 1]*squaresize,[-1 -1 1 1]*squaresize,[-1 0 0 -1]*thickness,color)
+        % patch([-1 -1 -1 -1]*squaresize,[-1 -1 1 1]*squaresize,[-1 0 0 -1]*thickness,color)
+        % patch([-1 1 1 -1]*squaresize,[-1 -1 -1 -1]*squaresize,[-1 -1 0 0]*thickness,color)
+        % patch([-1 1 1 -1]*squaresize,[1 1 1 1]*squaresize,[-1 -1 0 0]*thickness,color)
+    end
+
+    function visualize()%绘制仿真结果
+        x = zeros(1,NL); y = zeros(1,NL); z = zeros(1,NL);
+        for j = 1 : NL,  x(j) = p{i,j}(1);  y(j) = p{i,j}(2); z(j) = p{i,j}(3);   end
+        figure (2)
+        plot3(y,z,x);  axis([-0.5*L 0.5*L  -0.05*L 1.1*L   -0.5*L 0.5*L]); %view(120,20);
+        xlabel('y (m)');  ylabel('z (m)'); zlabel('x (m)')
+        hold on; grid on;  drawnow; %pause(dt);
+    end
+    
+    %保存实际整个杆的位置，末端（期望位置，位置误差，速度误差）
+    ann_bsmftc_p = p;    ann_bsmftc_xd = xd;    ann_bsmftc_e = e1;    ann_bsmftc_de = de;
+    save('.\1_ann_bsmftc_mat\ann_bsmftc_p.mat', 'ann_bsmftc_p', 'ann_bsmftc_xd', 'ann_bsmftc_e', 'ann_bsmftc_de');
+
+    %保存末端xyz位置
+    ann_bsmftc_p_x = zeros(1,STEPS);ann_bsmftc_p_y = zeros(1,STEPS);ann_bsmftc_p_z = zeros(1,STEPS);
+    for i = 1 : STEPS
+        ann_bsmftc_p_x(i)=p{i,NL}(1); ann_bsmftc_p_y(i)=p{i,NL}(2); ann_bsmftc_p_z(i)=p{i,NL}(3); 
+    end
+    save('.\1_ann_bsmftc_mat\ann_bsmftc_p_xyz.mat', 'ann_bsmftc_p_x', 'ann_bsmftc_p_y', 'ann_bsmftc_p_z');
+    % save('.\1_ann_bsmftc_mat\p_xyz.mat', 'Gs2' , '-append');%追加保存
+
+    %保存末端速度，加速度
+    ann_bsmftc_v_x = zeros(1,STEPS);ann_bsmftc_v_y = zeros(1,STEPS);ann_bsmftc_v_z = zeros(1,STEPS);
+    ann_bsmftc_a_x = zeros(1,STEPS);ann_bsmftc_a_y = zeros(1,STEPS);ann_bsmftc_a_z = zeros(1,STEPS);
+    for i = 1 : STEPS
+        ann_bsmftc_v_x(i)=pt(1,i);ann_bsmftc_v_y(i)=pt(2,i);ann_bsmftc_v_z(i)=pt(3,i);
+        ann_bsmftc_a_x(i)=ptt(1,i);ann_bsmftc_a_y(i)=ptt(2,i);ann_bsmftc_a_z(i)=ptt(3,i);
+    end
+    save('.\1_ann_bsmftc_mat\ann_bsmftc_v_xyz.mat', 'ann_bsmftc_v_x', 'ann_bsmftc_v_y', 'ann_bsmftc_v_z');
+    save('.\1_ann_bsmftc_mat\ann_bsmftc_a_xyz.mat', 'ann_bsmftc_a_x', 'ann_bsmftc_a_y', 'ann_bsmftc_a_z');
+    
+    %保存实际张力和控制输入张力
+    ann_bsmftc_tau = Ts;     ann_bsmftc_uc = uc; 
+    ann_bsmftc_mu = mu;      ann_bsmftc_mu_hat =mu_hat;
+    save('.\1_ann_bsmftc_mat\ann_bsmftc_tau_uc.mat', 'ann_bsmftc_tau', 'ann_bsmftc_uc','ann_bsmftc_mu','ann_bsmftc_mu_hat');
+
+    %保存末端alpha1
+    ann_bsmftc_fx = fx;  ann_bsmftc_ns_fe = ns_fe; ann_bsmftc_ns_h = ns_h; ann_bsmftc_fa = fa;
+    save('.\1_ann_bsmftc_mat\ann_bsmftc_alpha.mat', 'am', 'ann_bsmftc_fx', 'ann_bsmftc_ns_fe', 'ann_bsmftc_ns_h', 'ann_bsmftc_fa');
+
+    %保存整个杆的XYZ位置
+    Xs = zeros(STEPS,NL); Ys = zeros(STEPS,NL); Zs = zeros(STEPS,NL);
+    for i = 1:STEPS
+        for j = 1:NL
+            Xs(i,j) = p{i,j}(1);
+            Ys(i,j) = p{i,j}(2);
+            Zs(i,j) = p{i,j}(3);
+        end
+    end
+    ann_bsmftc_rodx=Xs; ann_bsmftc_rody=Ys; ann_bsmftc_rodz=Zs;
+    save('.\1_ann_bsmftc_mat\ann_bsmftc_rod.mat', 'ann_bsmftc_rodx', 'ann_bsmftc_rody', 'ann_bsmftc_rodz');
+    
+    nrmse_P = sqrt(mean((ann_bsmftc_p_x - ann_bsmftc_xd0(1, 1:STEPS)) .^ 2)) / range(ann_bsmftc_p_x)
+    nrmse_V = sqrt(mean((ann_bsmftc_v_x - ann_bsmftc_dxd(1, 1:STEPS)) .^ 2)) / range(ann_bsmftc_v_x)
+end

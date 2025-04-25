@@ -1,0 +1,112 @@
+﻿#include "widget.h"
+#include "ui_widget.h"
+//ui_XXXX.h是Qt自动生成的文件，包含了UI设计器中设计的界面元素的定义和布局信息
+//  XXXX是UI文件的名称=CPP文件的名称
+
+Widget::Widget(QWidget* parent):
+    QWidget(parent),    // 父类构造函数
+    ui(new Ui::Widget)  // 创建UI对象
+{
+    ui->setupUi(this);  // 初始化UI对象
+
+    m_timer = new QTimer(this); // 创建定时器对象
+    m_timer->setSingleShot(false);
+
+    // 连接信号槽
+    QObject::connect(m_timer, SIGNAL(timeout()), this, SLOT(slotTimeout()));    // 定时器超时信号
+    QObject::connect(ui->btnClear, SIGNAL(clicked(bool)), this, SLOT(slotBtnClear()));  // 清空按钮信号槽
+    QObject::connect(ui->btnStartAndStop, SIGNAL(clicked(bool)), this, SLOT(slotBtnStartAndStop()));    // 启动/停止按钮信号槽
+
+    // 创建横纵坐标轴并设置显示范围
+    m_axisX = new QValueAxis();
+    m_axisY = new QValueAxis();
+    m_axisX->setTitleText("X-label");
+    m_axisY->setTitleText("Y-label");
+    m_axisX->setMin(AXIS_MIN_X);
+    m_axisY->setMax(AXIS_MIN_Y);
+    m_axisX->setMax(AXIS_MAX_X);
+    m_axisY->setMax(AXIS_MAX_Y);
+
+    m_line1 = new QLineSeries();                             // 创建曲线绘制对象
+    m_line1->setPointsVisible(true);                         // 设置数据点可见
+    m_line1->setName("曲线1");                            // 图例名称
+
+    m_line2 = new QLineSeries();                             // 创建曲线绘制对象
+    m_line2->setPointsVisible(true);                         // 设置数据点可见
+    m_line2->setName("曲线2");                            // 图例名称
+
+    m_chart = new QChart();                                        // 创建图表对象
+    m_chart->addAxis(m_axisX, Qt::AlignBottom);                    // 将X轴添加到横轴上
+    m_chart->addAxis(m_axisY, Qt::AlignLeft);                      // 将Y轴添加到纵轴上
+    m_chart->addSeries(m_line1);                               // 将曲线对象添加到图表上
+    m_chart->addSeries(m_line2);
+    m_chart->setAnimationOptions(QChart::SeriesAnimations);        // 动画：能使曲线绘制显示的更平滑，过渡效果更好看
+
+    m_line1->attachAxis(m_axisX);                             // 曲线对象关联上X轴，此步骤必须在m_chart->addSeries之后
+    m_line1->attachAxis(m_axisY);                             // 曲线对象关联上Y轴，此步骤必须在m_chart->addSeries之后
+	m_line2->attachAxis(m_axisX);                             // 曲线对象关联上X轴，此步骤必须在m_chart->addSeries之后
+	m_line2->attachAxis(m_axisY);                             // 曲线对象关联上Y轴，此步骤必须在m_chart->addSeries之后
+
+    ui->graphicsView->setChart(m_chart);                           // 将图表对象设置到graphicsView上进行显示
+    ui->graphicsView->setRenderHint(QPainter::Antialiasing);       // 设置渲染：抗锯齿，如果不设置那么曲线就显得不平滑
+}
+
+Widget::~Widget()
+{
+    delete ui;
+}
+
+// 信号槽函数定义
+void Widget::slotBtnClear()
+{
+	m_line1->clear(); // 清空曲线数据
+	m_line2->clear(); // 清空曲线数据
+    m_chart->axisX()->setMin(AXIS_MIN_X);
+    m_chart->axisX()->setMax(AXIS_MAX_X);
+    pointCount = 0;
+	time = 0.0; // 重置时间
+}
+
+// 启动/停止按钮信号槽
+void Widget::slotBtnStartAndStop()
+{
+    if (m_timer->isActive())
+    {
+        m_timer->stop();
+        ui->btnStartAndStop->setText("启动定时器");
+    }
+    else
+    {
+        pointCount = 0;
+		time = 0.0; // 重置时间
+        m_line1->clear(); // 清空曲线数据
+        m_line2->clear(); // 清空曲线数据
+        m_timer->start(50);// 设置定时器间隔为 50ms (dt = 0.05s)
+        ui->btnStartAndStop->setText("停止定时器");
+    }
+}
+
+// 定时器超时信号槽
+void Widget::slotTimeout()
+{
+    //static double time = 0.0; // 当前时间
+    static const double T = 10.0; // 仿真时间
+    static const double dt = 0.05; // 时间步长
+
+    // 生成正弦曲线数据
+    double value1 = sin(time * M_PI / 2); // 正弦函数，周期为 4 秒
+	double value2 = cos(time * M_PI / 2); // 余弦函数，周期为 4 秒
+    // 更新曲线数据
+    m_line1->append(time, value1);
+	m_line2->append(time, value2);
+
+    // 更新时间
+    time += dt;
+
+    // 如果达到仿真时间，停止定时器
+    if (time >= T)
+    {
+        m_timer->stop();
+        ui->btnStartAndStop->setText("启动定时器");
+    }
+}

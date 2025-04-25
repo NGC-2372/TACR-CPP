@@ -1,0 +1,5 @@
+set(__QT_DEPLOY_TARGET_TACR-CPP_FILE D:/GitHub/ContinuumRobot/TACR-CPP/out/build/release/src/TACR-CPP.exe)
+set(__QT_DEPLOY_TARGET_TACR-CPP_TYPE EXECUTABLE)
+set(__QT_DEPLOY_TARGET_TACR-CPP_RUNTIME_DLLS C:/Program1/Qt/Qt6.9/6.9.0/msvc2022_64/bin/Qt6Charts.dll;C:/Program1/Qt/Qt6.9/6.9.0/msvc2022_64/bin/Qt6OpenGLWidgets.dll;C:/Program1/Qt/Qt6.9/6.9.0/msvc2022_64/bin/Qt6Widgets.dll;C:/Program1/Qt/Qt6.9/6.9.0/msvc2022_64/bin/Qt6OpenGL.dll;C:/Program1/Qt/Qt6.9/6.9.0/msvc2022_64/bin/Qt6Gui.dll;C:/Program1/Qt/Qt6.9/6.9.0/msvc2022_64/bin/Qt6Core.dll)
+set(__QT_DEPLOY_TARGET_QtGuiLib_FILE D:/GitHub/ContinuumRobot/TACR-CPP/out/build/release/Qtgui/QtGuiLib.lib)
+set(__QT_DEPLOY_TARGET_QtGuiLib_TYPE STATIC_LIBRARY)

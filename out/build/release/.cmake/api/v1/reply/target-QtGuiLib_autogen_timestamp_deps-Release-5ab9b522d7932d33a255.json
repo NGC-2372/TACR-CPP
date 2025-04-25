@@ -1,0 +1,27 @@
+{
+	"backtrace" : 0,
+	"backtraceGraph" : 
+	{
+		"commands" : [],
+		"files" : 
+		[
+			"Qtgui/CMakeLists.txt"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 0
+			}
+		]
+	},
+	"id" : "QtGuiLib_autogen_timestamp_deps::@8a0d1a187870f20f0d71",
+	"isGeneratorProvided" : true,
+	"name" : "QtGuiLib_autogen_timestamp_deps",
+	"paths" : 
+	{
+		"build" : "Qtgui",
+		"source" : "Qtgui"
+	},
+	"sources" : [],
+	"type" : "UTILITY"
+}

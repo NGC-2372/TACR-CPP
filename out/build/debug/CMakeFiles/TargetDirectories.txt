@@ -1,0 +1,12 @@
+D:/GitHub/ContinuumRobot/TACR-CPP/out/build/debug/CMakeFiles/edit_cache.dir
+D:/GitHub/ContinuumRobot/TACR-CPP/out/build/debug/CMakeFiles/rebuild_cache.dir
+D:/GitHub/ContinuumRobot/TACR-CPP/out/build/debug/src/CMakeFiles/TACR-CPP.dir
+D:/GitHub/ContinuumRobot/TACR-CPP/out/build/debug/src/CMakeFiles/edit_cache.dir
+D:/GitHub/ContinuumRobot/TACR-CPP/out/build/debug/src/CMakeFiles/rebuild_cache.dir
+D:/GitHub/ContinuumRobot/TACR-CPP/out/build/debug/src/CMakeFiles/TACR-CPP_autogen_timestamp_deps.dir
+D:/GitHub/ContinuumRobot/TACR-CPP/out/build/debug/src/CMakeFiles/TACR-CPP_autogen.dir
+D:/GitHub/ContinuumRobot/TACR-CPP/out/build/debug/Qtgui/CMakeFiles/QtGuiLib.dir
+D:/GitHub/ContinuumRobot/TACR-CPP/out/build/debug/Qtgui/CMakeFiles/edit_cache.dir
+D:/GitHub/ContinuumRobot/TACR-CPP/out/build/debug/Qtgui/CMakeFiles/rebuild_cache.dir
+D:/GitHub/ContinuumRobot/TACR-CPP/out/build/debug/Qtgui/CMakeFiles/QtGuiLib_autogen_timestamp_deps.dir
+D:/GitHub/ContinuumRobot/TACR-CPP/out/build/debug/Qtgui/CMakeFiles/QtGuiLib_autogen.dir
